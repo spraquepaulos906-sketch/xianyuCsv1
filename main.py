@@ -6,19 +6,19 @@ import os
 import websockets
 from loguru import logger
 from dotenv import load_dotenv, set_key
-from XianyuApis import XianyuApis
+from XianyuCsv1Apis import XianyuCsv1Apis
 import sys
 import random
 
 
 from utils.xianyu_utils import generate_mid, generate_uuid, trans_cookies, generate_device_id, decrypt
-from XianyuAgent import XianyuReplyBot
+from XianyuCsv1Agent import XianyuCsv1ReplyBot
 from context_manager import ChatContextManager
 
 
-class XianyuLive:
+class XianyuCsv1Live:
     def __init__(self, cookies_str):
-        self.xianyu = XianyuApis()
+        self.xianyu = XianyuCsv1Apis()
         self.base_url = 'wss://wss-goofish.dingtalk.com/'
         self.cookies_str = cookies_str
         self.cookies = trans_cookies(cookies_str)
@@ -809,7 +809,7 @@ if __name__ == '__main__':
     logger.info(f"日志级别设置为: {log_level}")
     
     # 先初始化 bot（config.json 为空时仅告警，不崩溃）
-    bot = XianyuReplyBot()
+    bot = XianyuCsv1ReplyBot()
 
     # 立即启动 Web 前端（后台线程），保证无论 cookie 是否有效前端都能打开
     from web.server import app, set_runtime, start_web
@@ -829,11 +829,11 @@ if __name__ == '__main__':
             time.sleep(3)
             continue
 
-        xianyuLive = XianyuLive(cookies_str)
-        set_runtime(bot, xianyuLive)
+        csv1Live = XianyuCsv1Live(cookies_str)
+        set_runtime(bot, csv1Live)
         logger.info("闲鱼值守已启动")
         try:
-            asyncio.run(xianyuLive.main())
+            asyncio.run(csv1Live.main())
         except Exception as e:
             logger.error(f"闲鱼值守运行异常: {e}")
         finally:

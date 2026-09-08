@@ -7,7 +7,7 @@ from loguru import logger
 import config_manager
 
 
-class XianyuReplyBot:
+class XianyuCsv1ReplyBot:
     def __init__(self):
         # 从 config.json 读取当前启用的模型，初始化OpenAI客户端
         self.current_model_id = None

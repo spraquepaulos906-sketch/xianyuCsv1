@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 FROM python:3.10-alpine
 
 # 添加元数据标签
-LABEL maintainer="coderxiu<coderxiu@qq.com>"
+LABEL maintainer="待补充"
 LABEL description="闲鱼AI客服机器人"
 LABEL version="2.0"
 
@@ -57,7 +57,7 @@ COPY prompts/tech_prompt_example.txt prompts/tech_prompt.txt
 COPY prompts/default_prompt_example.txt prompts/default_prompt.txt
 
 # 只复制绝对必要的文件
-COPY main.py XianyuAgent.py XianyuApis.py context_manager.py ./
+COPY main.py XianyuCsv1Agent.py XianyuCsv1Apis.py context_manager.py ./
 COPY utils/ utils/
 
 # 容器启动时运行的命令

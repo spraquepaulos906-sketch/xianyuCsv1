@@ -8,7 +8,7 @@ from loguru import logger
 from utils.xianyu_utils import generate_sign
 
 
-class XianyuApis:
+class XianyuCsv1Apis:
     def __init__(self):
         self.url = 'https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.login.token/1.0/'
         self.session = requests.Session()

@@ -21,8 +21,8 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 app = FastAPI(title="xianyuCsv1")
 
 # 运行时注入的全局实例（由 main.py 设置）
-_bot = None   # XianyuReplyBot
-_live = None  # XianyuLive
+_bot = None   # XianyuCsv1ReplyBot
+_live = None  # XianyuCsv1Live
 
 # 自动连接闲鱼的后台任务状态（供前端轮询）
 _auto_state = {"running": False, "done": False, "ok": False, "message": ""}

@@ -2,13 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![LLM Powered](https://img.shields.io/badge/LLM-powered-FF6F61)](https://platform.openai.com/)
 
-专为闲鱼平台打造的AI值守解决方案，实现闲鱼平台7×24小时自动化值守，支持多专家协同决策、智能议价和上下文感知对话。 
-
-
-## 🙏 特别鸣谢
-
-本项目基于 [XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent)（作者 shaxiu，GPL-3.0 许可）二次开发，在此向原作者致以诚挚感谢。本仓库同样遵循 GPL-3.0 协议开源。
-
+专为闲鱼平台打造的AI值守解决方案，实现闲鱼平台7×24小时自动化值守，支持多专家协同决策、智能议价和上下文感知对话。
 
 ## 🌟 核心特性
 
@@ -24,15 +18,14 @@
 | 核心引擎 | ✅ LLM自动回复<br>✅ 上下文管理 | 🔄 情感分析增强               |
 | 议价系统 | ✅ 阶梯降价策略                | 🔄 市场比价功能               |
 | 技术支持 | ✅ 网络搜索整合                | 🔄 RAG知识库增强              |
-| 运维监控 | ✅ 基础日志                    | 🔄 钉钉集成<br>🔄  Web管理界面 |
+| 运维监控 | ✅ 基础日志<br>✅ Web管理界面  | 🔄 钉钉集成                  |
 
-## 🎨效果图
+## 🎨 效果图
 <div align="center">
   <img src="./images/demo1.png" width="600" alt="客服">
   <br>
   <em>图1: 客服随叫随到</em>
 </div>
-
 
 <div align="center">
   <img src="./images/demo2.png" width="600" alt="议价专家">
@@ -41,48 +34,46 @@
 </div>
 
 <div align="center">
-  <img src="./images/demo3.png" width="600" alt="技术专家"> 
+  <img src="./images/demo3.png" width="600" alt="技术专家">
   <br>
   <em>图3: 技术专家上场</em>
 </div>
 
 <div align="center">
-  <img src="./images/log.png" width="600" alt="后台log"> 
+  <img src="./images/log.png" width="600" alt="后台log">
   <br>
   <em>图4: 后台log</em>
 </div>
 
-
 ## 🚴 快速开始
-小白请直接查看[保姆级教学文档](https://my.feishu.cn/wiki/JtkBwkI9GiokZikVdyNceEfZncE)
+
 ### 环境要求
 - Python 3.8+
 
 ### 安装步骤
 ```bash
-1. 克隆仓库
-git clone https://github.com/shaxiu/XianyuAutoAgent.git
-cd XianyuAutoAgent
+# 1. 克隆仓库
+git clone https://github.com/spraquepaulos906-sketch/xianyuCsv1.git
+cd xianyuCsv1
 
-2. 安装依赖
+# 2. 安装依赖
 pip install -r requirements.txt
 
-3. 配置环境变量
-创建一个 `.env` 文件，包含以下内容，也可直接重命名 `.env.example` ：
-#必配配置
-API_KEY=apikey通过模型平台获取
-COOKIES_STR=填写网页端获取的cookie
-MODEL_BASE_URL=模型地址
-MODEL_NAME=模型名称
-#可选配置
-TOGGLE_KEYWORDS=接管模式切换关键词，默认为句号（输入句号切换为人工接管，再次输入则切换AI接管）
-SIMULATE_HUMAN_TYPING=True/False #模拟人工回复延迟
+# 3. 配置模型（LLM）
+#    复制 config.example.json 为 config.json，填入你的 API Key：
+#    - base_url：模型服务地址，如 https://api.deepseek.com/v1
+#    - model_name：模型名，如 deepseek-chat
+#    支持多模型，可在 Web 控制台内增删改查与切换当前模型。
 
-注意：默认使用的模型是通义千问，如需使用其他API，请自行修改.env文件中的模型地址和模型名称；
-COOKIES_STR自行在闲鱼网页端获取cookies(网页端F12打开控制台，选择Network，点击Fetch/XHR,点击一个请求，查看cookies)
-
-4. 创建提示词文件prompts/*_prompt.txt（也可以直接将模板名称中的_example去掉），否则默认读取四个提示词模板中的内容
+# 4. 配置闲鱼 Cookie
+#    复制 .env.example 为 .env，填入 COOKIES_STR（网页端获取，见下方说明）
 ```
+
+获取闲鱼 Cookie：网页端登录闲鱼后，F12 打开控制台 → Network → Fetch/XHR → 点击任意请求 → 查看请求头中的 cookies，填入 `.env` 的 `COOKIES_STR`。
+
+`.env` 中的可选配置：
+- `TOGGLE_KEYWORDS`：接管模式切换关键词，默认句号（输入句号切换人工接管，再次输入切回 AI 接管）
+- `SIMULATE_HUMAN_TYPING`：是否模拟人工回复延迟（True/False）
 
 ### 使用方法
 
@@ -90,6 +81,7 @@ COOKIES_STR自行在闲鱼网页端获取cookies(网页端F12打开控制台，�
 ```bash
 python main.py
 ```
+启动后访问 http://127.0.0.1:8000 打开 Web 控制台。
 
 ### 自定义提示词
 
@@ -102,62 +94,22 @@ python main.py
 
 ## 🤝 参与贡献
 
-欢迎通过 Issue 提交建议或 PR 贡献代码，请遵循 [贡献指南](https://contributing.md/)
-
-## 🧸特别鸣谢
-本项目参考了以下开源项目：
-https://github.com/cv-cat/XianYuApis
-
-感谢<a href="https://github.com/cv-cat">@CVcat</a>的技术支持
+欢迎通过 Issue 提交建议或 PR 贡献代码。
 
 ## 🛡 注意事项
 
-⚠️ 注意：**本项目仅供学习与交流，如有侵权联系作者删除。**
+⚠️ 本项目仅供学习与交流，如有侵权请联系作者删除。
 
-鉴于项目的特殊性，开发团队可能在任何时间**停止更新**或**删除项目**。
+## 👤 作者
 
-如需学习交流，请联系：[coderxiu@qq.com](https://mailto:coderxiu@qq.com/)
-
-## 📱 交流群
-欢迎加入项目交流群，交流技术、分享经验、互助学习。
-<div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>交流群26（已满200）</strong></td>
-      <td align="center"><strong>交流群27（推荐加入）</strong></td>
-    </tr>
-    <tr>
-      <td><img src="./images/wx_group26.png" width="300px" alt="交流群26"></td>
-      <td><img src="./images/wx_group27.png" width="300px" alt="交流群27"></td>
-    </tr>
-  </table>
-</div>
-
-## 💼 寻找机会
-
-### <a href="https://github.com/shaxiu">@Shaxiu</a>
-**🔍寻求方向**：**AI产品经理**  
-**📫 联系：** **email**:coderxiu@qq.com；**wx:** coderxiu
-
-### <a href="https://github.com/cv-cat">@CVcat</a>
-**🔍寻求方向**：**研发工程师**（python、java、逆向、爬虫）  
-**📫 联系：** **email:** 992822653@qq.com；**wx:** CVZC15751076989
-## ☕ 请喝咖啡
-您的☕和⭐将助力项目持续更新：
-
-<div align="center">
-  <img src="./images/wechat_pay.jpg" width="400px" alt="微信赞赏码"> 
-  <img src="./images/alipay.jpg" width="400px" alt="支付宝收款码">
-</div>
-
+- 作者：`待补充`
+- 联系方式：`待补充`
 
 ## 📈 Star 趋势
-<a href="https://www.star-history.com/#shaxiu/XianyuAutoAgent&Date">
+<a href="https://www.star-history.com/#spraquepaulos906-sketch/xianyuCsv1&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=spraquepaulos906-sketch/xianyuCsv1&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=spraquepaulos906-sketch/xianyuCsv1&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=spraquepaulos906-sketch/xianyuCsv1&type=Date" />
  </picture>
 </a>
-
-

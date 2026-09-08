@@ -146,8 +146,8 @@ class XianyuApis:
                 return self.get_token(device_id, 0)  # 重置重试次数
             else:
                 logger.error("重新登录失败，Cookie已失效")
-                logger.error("🔴 程序即将退出，请更新.env文件中的COOKIES_STR后重新启动")
-                sys.exit(1)  # 直接退出程序
+                logger.error("🔴 Cookie已失效，闲鱼连接将暂停重试（Web 控制台仍保持运行），请更新.env文件中的COOKIES_STR后重启")
+                return None  # 不再直接退出程序，保持 Web 前端运行
 
         params = {
             'jsv': '2.7.2',

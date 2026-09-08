@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>xianyuCsv1</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="title">
+      <h1>🐟 xianyuCsv1</h1>
+      <div class="status">
+        <span id="status-dot" class="dot offline"></span>
+        <span id="status-text">未连接</span>
+        <span id="current-model" class="current-model"></span>
+      </div>
+    </div>
+    <a href="https://www.goofish.com" target="_blank" rel="noopener" class="btn goofish">跳转闲鱼网页 ↗</a>
+  </header>
+
+  <main>
+    <section class="cookie-section">
+      <div class="section-head">
+        <h2>闲鱼连接</h2>
+        <span id="cookie-status" class="cookie-status warn">未配置</span>
+      </div>
+      <div class="cookie-box">
+        <textarea id="cookie-input" rows="3" placeholder="粘贴闲鱼网页版完整 Cookie（需包含 unb= 和 _m_h5_tk=）"></textarea>
+        <div class="cookie-actions">
+          <span id="cookie-masked" class="cookie-masked"></span>
+          <button class="btn" id="cookie-auto-btn">🔌 自动连接</button>
+          <button class="btn primary" id="cookie-save-btn">保存并连接</button>
+        </div>
+        <p id="auto-msg" class="hint" style="display:none"></p>
+      </div>
+      <p class="hint">推荐点「自动连接」：自动弹出浏览器登录、抓取 Cookie 并连接，无需手动 F12。手动粘贴也可用。</p>
+    </section>
+
+    <section class="network-section">
+      <div class="section-head">
+        <h2>网络访问</h2>
+        <span id="network-status" class="cookie-status warn">仅本机</span>
+      </div>
+      <div class="network-box">
+        <label class="switch-label">
+          <input type="checkbox" id="lan-toggle">
+          <span>开启局域网访问（允许同一网络内的手机 / 其他电脑访问本控制台）</span>
+        </label>
+        <p id="lan-url" class="hint" style="display:none"></p>
+      </div>
+    </section>
+
+    <section class="models-section">
+      <div class="section-head">
+        <h2>模型配置</h2>
+        <button class="btn primary" id="add-btn">+ 添加模型</button>
+      </div>
+      <div id="models-list" class="models-list"></div>
+      <p class="hint">提示：添加多家 API key 后，点击“设为当前”切换机器人使用的模型，即时生效。</p>
+    </section>
+
+    <section class="logs-section">
+      <div class="section-head">
+        <h2>对话日志</h2>
+        <button class="btn" id="logs-refresh-btn">🔄 刷新</button>
+      </div>
+      <div id="conversations-list" class="conversations-list"></div>
+      <div id="conversation-detail" class="conversation-detail hidden"></div>
+      <p class="hint">提示：点击会话查看完整消息记录，数据持久化在本地数据库。</p>
+    </section>
+  </main>
+
+  <!-- 添加/编辑模型弹窗 -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="modal-title">添加模型</h3>
+      <form id="model-form">
+        <label class="field">供应商预设
+          <select id="provider-select"></select>
+        </label>
+        <label class="field">显示名称
+          <input id="provider" placeholder="如 DeepSeek" required>
+        </label>
+        <label class="field">API Key
+          <input id="api-key" type="password" placeholder="sk-..." autocomplete="off">
+        </label>
+        <label class="field">Base URL
+          <input id="base-url" placeholder="https://api.deepseek.com/v1" required>
+        </label>
+        <label class="field">模型名称
+          <input id="model-name" placeholder="deepseek-chat" required>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="cancel-btn">取消</button>
+          <button type="submit" class="btn primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

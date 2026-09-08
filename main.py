@@ -23,7 +23,7 @@ class XianyuLive:
         self.cookies_str = cookies_str
         self.cookies = trans_cookies(cookies_str)
         self.xianyu.session.cookies.update(self.cookies)  # 直接使用 session.cookies.update
-        self.myid = self.cookies['unb']
+        self.myid = self.cookies.get('unb', '')
         self.device_id = generate_device_id(self.myid)
         self.context_manager = ChatContextManager()
         
@@ -34,6 +34,7 @@ class XianyuLive:
         self.last_heartbeat_response = 0
         self.heartbeat_task = None
         self.ws = None
+        self.loop = None
         
         # Token刷新相关配置
         self.token_refresh_interval = int(os.getenv("TOKEN_REFRESH_INTERVAL", "3600"))  # Token刷新间隔，默认1小时
@@ -57,13 +58,42 @@ class XianyuLive:
         # 模拟人工输入配置
         self.simulate_human_typing = os.getenv("SIMULATE_HUMAN_TYPING", "False").lower() == "true"
 
+    def update_cookie(self, cookies_str: str) -> None:
+        """热切换 cookie：更新连接凭据，下次重连时生效。"""
+        self.cookies_str = cookies_str
+        self.cookies = trans_cookies(cookies_str)
+        self.myid = self.cookies.get('unb', '')
+        self.device_id = generate_device_id(self.myid)
+        # 重置 token，强制重新登录获取
+        self.current_token = None
+        self.last_token_refresh_time = 0
+        # 重建 session cookies
+        try:
+            self.xianyu.session.cookies.clear()
+            self.xianyu.session.cookies.update(self.cookies)
+        except Exception:
+            pass
+        logger.info("cookie 已更新，准备重连闲鱼")
+
+    def request_restart(self) -> None:
+        """请求值守重连（供 Web 线程调用）。"""
+        self.connection_restart_flag = True
+        if self.ws is not None and self.loop is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(self.ws.close(), self.loop)
+            except Exception as e:
+                logger.warning(f"关闭旧连接失败（将在心跳后自动重连）: {e}")
+
     async def refresh_token(self):
         """刷新token"""
         try:
             logger.info("开始刷新token...")
             
-            # 获取新token（如果Cookie失效，get_token会直接退出程序）
+            # 获取新token（如果Cookie失效，get_token返回None）
             token_result = self.xianyu.get_token(self.device_id)
+            if not token_result:
+                logger.error("Token刷新失败：Cookie已失效或服务异常")
+                return None
             if 'data' in token_result and 'accessToken' in token_result['data']:
                 new_token = token_result['data']['accessToken']
                 self.current_token = new_token
@@ -609,6 +639,7 @@ class XianyuLive:
     async def main(self):
         while True:
             try:
+                self.loop = asyncio.get_running_loop()
                 # 重置连接重启标志
                 self.connection_restart_flag = False
                 
@@ -709,8 +740,8 @@ class XianyuLive:
 def check_and_complete_env():
     """检查并补全关键环境变量"""
     # 定义关键变量及其默认无效值（占位符）
+    # 注意：模型 API_KEY 已迁移到 config.json，由 Web 前端管理
     critical_vars = {
-        "API_KEY": "默认使用通义千问,apikey通过百炼模型平台获取",
         "COOKIES_STR": "your_cookies_here"
     }
     
@@ -719,30 +750,39 @@ def check_and_complete_env():
     
     for key, placeholder in critical_vars.items():
         curr_val = os.getenv(key)
-        
+
         # 如果变量未设置，或者值等于占位符
         if not curr_val or curr_val == placeholder:
-            logger.warning(f"配置项 [{key}] 未设置或为默认值，请输入")
+            # 非交互环境（后台/无终端）直接跳过，避免阻塞启动
+            if not (sys.stdin and sys.stdin.isatty()):
+                logger.warning(f"配置项 [{key}] 未设置（非交互环境），跳过。可在 .env 中手动填写。")
+                continue
+            logger.warning(f"配置项 [{key}] 未设置或为默认值")
             while True:
-                val = input(f"请输入 {key}: ").strip()
+                try:
+                    val = input(f"请输入 {key}（直接回车跳过，仅启动前端）: ").strip()
+                except EOFError:
+                    logger.warning("检测到非交互输入，跳过配置提示")
+                    break
                 if val:
                     # 更新当前环境
                     os.environ[key] = val
-                    
+
                     # 尝试持久化到 .env
                     try:
                         # 如果没有.env文件，先创建
                         if not os.path.exists(env_path):
                             with open(env_path, 'w', encoding='utf-8') as f:
                                 pass # Create empty file
-                        
+
                         set_key(env_path, key, val)
                         updated = True
                     except Exception as e:
                         logger.warning(f"无法自动写入.env文件，请手动保存: {e}")
                     break
                 else:
-                    print(f"{key} 不能为空，请重新输入")
+                    logger.warning(f"{key} 未填写，跳过（前端仍可用，值守不运行）")
+                    break
     
     if updated:
         logger.info("新的配置已保存/更新至 .env 文件中")
@@ -768,11 +808,34 @@ if __name__ == '__main__':
     )
     logger.info(f"日志级别设置为: {log_level}")
     
-    # 交互式检查并补全配置
-    check_and_complete_env()
-    
-    cookies_str = os.getenv("COOKIES_STR")
+    # 先初始化 bot（config.json 为空时仅告警，不崩溃）
     bot = XianyuReplyBot()
-    xianyuLive = XianyuLive(cookies_str)
-    # 常驻进程
-    asyncio.run(xianyuLive.main())
+
+    # 立即启动 Web 前端（后台线程），保证无论 cookie 是否有效前端都能打开
+    from web.server import app, set_runtime, start_web
+    set_runtime(bot, None)  # 闲鱼值守实例稍后注入
+    web_host = os.getenv("WEB_HOST", "127.0.0.1")
+    web_port = int(os.getenv("WEB_PORT", "8000"))
+    start_web(web_host, web_port)
+    logger.info(f"Web 控制台已启动: http://{web_host}:{web_port}")
+
+    # 交互式检查并补全 cookie（可能阻塞，但此时前端已可用）
+    check_and_complete_env()
+
+    # 值守监督循环：cookie 就绪则启动值守，缺失则等待（前端始终可用）
+    while True:
+        cookies_str = os.getenv("COOKIES_STR", "")
+        if not cookies_str or cookies_str == "your_cookies_here":
+            time.sleep(3)
+            continue
+
+        xianyuLive = XianyuLive(cookies_str)
+        set_runtime(bot, xianyuLive)
+        logger.info("闲鱼值守已启动")
+        try:
+            asyncio.run(xianyuLive.main())
+        except Exception as e:
+            logger.error(f"闲鱼值守运行异常: {e}")
+        finally:
+            set_runtime(bot, None)
+        time.sleep(3)

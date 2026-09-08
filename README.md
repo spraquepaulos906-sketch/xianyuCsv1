@@ -1,8 +1,13 @@
-# 🚀 Xianyu AutoAgent - 智能闲鱼客服机器人系统
+# 🚀 xianyuCsv1 - 智能闲鱼客服机器人系统
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![LLM Powered](https://img.shields.io/badge/LLM-powered-FF6F61)](https://platform.openai.com/)
 
 专为闲鱼平台打造的AI值守解决方案，实现闲鱼平台7×24小时自动化值守，支持多专家协同决策、智能议价和上下文感知对话。 
+
+
+## 🙏 特别鸣谢
+
+本项目基于 [XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent)（作者 shaxiu，GPL-3.0 许可）二次开发，在此向原作者致以诚挚感谢。本仓库同样遵循 GPL-3.0 协议开源。
 
 
 ## 🌟 核心特性

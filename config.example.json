@@ -1,0 +1,12 @@
+{
+  "models": [
+    {
+      "id": "example-id",
+      "provider": "DeepSeek",
+      "api_key": "",
+      "base_url": "https://api.deepseek.com/v1",
+      "model_name": "deepseek-chat",
+      "is_current": true
+    }
+  ]
+}

@@ -4,27 +4,62 @@ import os
 from openai import OpenAI
 from loguru import logger
 
+import config_manager
+
 
 class XianyuReplyBot:
     def __init__(self):
-        # 初始化OpenAI客户端
-        self.client = OpenAI(
-            api_key=os.getenv("API_KEY"),
-            base_url=os.getenv("MODEL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        )
+        # 从 config.json 读取当前启用的模型，初始化OpenAI客户端
+        self.current_model_id = None
+        self.current_model_name = None
+        self.current_base_url = ""
+        self.client = None
+
+        current = config_manager.get_current_model()
+        if current:
+            self.client = OpenAI(
+                api_key=current.get("api_key"),
+                base_url=current.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            )
+            self.current_model_id = current.get("id")
+            self.current_model_name = current.get("model_name", "qwen-max")
+            self.current_base_url = current.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+            logger.info(f"当前使用模型: {current.get('provider')} / {self.current_model_name}")
+        else:
+            logger.warning("config.json 中没有任何模型，请通过 Web 前端添加模型")
+
         self._init_system_prompts()
         self._init_agents()
         self.router = IntentRouter(self.agents['classify'])
         self.last_intent = None  # 记录最后一次意图
 
 
+    def switch_model(self, model_id: str) -> bool:
+        """切换到指定模型（热切换），并重建各 Agent 持有的 client 引用。"""
+        current = config_manager.set_current(model_id)
+        if current is None:
+            logger.error(f"切换模型失败：未找到模型 {model_id}")
+            return False
+
+        self.client = OpenAI(
+            api_key=current.get("api_key"),
+            base_url=current.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        )
+        self.current_model_id = current.get("id")
+        self.current_model_name = current.get("model_name", "qwen-max")
+        self.current_base_url = current.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self._init_agents()  # 重建 Agent，使其持有新的 client 和 model_name
+        logger.info(f"已切换到模型: {current.get('provider')} / {self.current_model_name}")
+        return True
+
+
     def _init_agents(self):
         """初始化各领域Agent"""
         self.agents = {
-            'classify':ClassifyAgent(self.client, self.classify_prompt, self._safe_filter),
-            'price': PriceAgent(self.client, self.price_prompt, self._safe_filter),
-            'tech': TechAgent(self.client, self.tech_prompt, self._safe_filter),
-            'default': DefaultAgent(self.client, self.default_prompt, self._safe_filter),
+            'classify':ClassifyAgent(self.client, self.classify_prompt, self._safe_filter, self.current_model_name),
+            'price': PriceAgent(self.client, self.price_prompt, self._safe_filter, self.current_model_name),
+            'tech': TechAgent(self.client, self.tech_prompt, self._safe_filter, self.current_model_name, base_url=self.current_base_url),
+            'default': DefaultAgent(self.client, self.default_prompt, self._safe_filter, self.current_model_name),
         }
 
     def _init_system_prompts(self):
@@ -201,10 +236,16 @@ class IntentRouter:
 class BaseAgent:
     """Agent基类"""
 
-    def __init__(self, client, system_prompt, safety_filter):
+    def __init__(self, client, system_prompt, safety_filter, model_name="qwen-max", base_url=""):
         self.client = client
         self.system_prompt = system_prompt
         self.safety_filter = safety_filter
+        self.model_name = model_name
+        self.base_url = base_url
+
+    def _is_qwen(self) -> bool:
+        """是否为通义千问(DashScope)供应商（基于 base_url 判断）。"""
+        return "dashscope" in self.base_url or "aliyuncs" in self.base_url
 
     def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int = 0) -> str:
         """生成回复模板方法"""
@@ -222,7 +263,7 @@ class BaseAgent:
     def _call_llm(self, messages: List[Dict], temperature: float = 0.4) -> str:
         """调用大模型"""
         response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
+            model=self.model_name,
             messages=messages,
             temperature=temperature,
             max_tokens=500,
@@ -241,7 +282,7 @@ class PriceAgent(BaseAgent):
         messages[0]['content'] += f"\n▲当前议价轮次：{bargain_count}"
 
         response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
+            model=self.model_name,
             messages=messages,
             temperature=dynamic_temp,
             max_tokens=500,
@@ -261,16 +302,17 @@ class TechAgent(BaseAgent):
         messages = self._build_messages(user_msg, item_desc, context)
         # messages[0]['content'] += "\n▲知识库：\n" + self._fetch_tech_specs()
 
-        response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
-            messages=messages,
-            temperature=0.4,
-            max_tokens=500,
-            top_p=0.8,
-            extra_body={
-                "enable_search": True,
-            }
-        )
+        kwargs = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 500,
+            "top_p": 0.8,
+        }
+        # enable_search 为通义千问(DashScope)专有参数，仅该供应商下启用
+        if self._is_qwen():
+            kwargs["extra_body"] = {"enable_search": True}
+        response = self.client.chat.completions.create(**kwargs)
 
         return self.safety_filter(response.choices[0].message.content)
 

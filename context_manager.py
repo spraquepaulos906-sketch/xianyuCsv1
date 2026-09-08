@@ -284,26 +284,131 @@ class ChatContextManager:
     def get_bargain_count_by_chat(self, chat_id):
         """
         基于会话ID获取议价次数
-        
+
         Args:
             chat_id: 会话ID
-            
+
         Returns:
             int: 议价次数
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute(
                 "SELECT count FROM chat_bargain_counts WHERE chat_id = ?",
                 (chat_id,)
             )
-            
+
             result = cursor.fetchone()
             return result[0] if result else 0
         except Exception as e:
             logger.error(f"获取议价次数时出错: {e}")
             return 0
         finally:
-            conn.close() 
+            conn.close()
+
+    def _get_item_title(self, conn, item_id):
+        """读取商品标题（优先 title，回退 desc）。"""
+        if not item_id:
+            return None
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT data FROM items WHERE item_id = ?", (item_id,))
+            row = cur.fetchone()
+            if row:
+                data = json.loads(row[0])
+                return data.get("title") or data.get("desc") or None
+        except Exception:
+            pass
+        return None
+
+    def list_conversations(self, limit=200):
+        """
+        列出所有会话（按最近消息时间倒序），含买家ID、商品标题与消息数。
+
+        Args:
+            limit: 最大返回会话数
+
+        Returns:
+            list: 会话信息字典列表
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                SELECT chat_id,
+                       MAX(CASE WHEN role = 'user' THEN user_id END) AS user_id,
+                       MAX(item_id) AS item_id,
+                       COUNT(*) AS message_count,
+                       MAX(timestamp) AS last_time
+                FROM messages
+                WHERE chat_id IS NOT NULL AND chat_id != ''
+                GROUP BY chat_id
+                ORDER BY last_time DESC
+                LIMIT ?
+                """,
+                (limit,)
+            )
+
+            conversations = []
+            for chat_id, user_id, item_id, count, last_time in cursor.fetchall():
+                conversations.append({
+                    "chat_id": chat_id,
+                    "user_id": user_id,
+                    "item_id": item_id,
+                    "message_count": count,
+                    "last_time": last_time,
+                    "item_title": self._get_item_title(conn, item_id),
+                })
+            return conversations
+        except Exception as e:
+            logger.error(f"列出会话列表时出错: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_messages_by_chat(self, chat_id, limit=500):
+        """
+        获取指定会话的完整消息历史（按时间正序）。
+
+        Args:
+            chat_id: 会话ID
+            limit: 最大返回消息数
+
+        Returns:
+            list: 消息字典列表
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                SELECT id, user_id, item_id, role, content, timestamp
+                FROM messages
+                WHERE chat_id = ?
+                ORDER BY timestamp ASC, id ASC
+                LIMIT ?
+                """,
+                (chat_id, limit)
+            )
+
+            return [
+                {
+                    "id": r[0],
+                    "user_id": r[1],
+                    "item_id": r[2],
+                    "role": r[3],
+                    "content": r[4],
+                    "timestamp": r[5],
+                }
+                for r in cursor.fetchall()
+            ]
+        except Exception as e:
+            logger.error(f"获取会话 {chat_id} 消息时出错: {e}")
+            return []
+        finally:
+            conn.close()

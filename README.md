@@ -102,8 +102,7 @@ python main.py
 
 ## 👤 作者
 
-- 作者：`待补充`
-- 联系方式：`待补充`
+- 作者：`spraquepaulos906-sketch`
 
 ## 📈 Star 趋势
 <a href="https://www.star-history.com/#spraquepaulos906-sketch/xianyuCsv1&Date">

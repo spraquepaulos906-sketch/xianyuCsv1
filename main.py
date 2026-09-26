@@ -14,6 +14,7 @@ import random
 from utils.xianyu_utils import generate_mid, generate_uuid, trans_cookies, generate_device_id, decrypt
 from XianyuCsv1Agent import XianyuCsv1ReplyBot
 from context_manager import ChatContextManager
+import config_manager
 
 
 class XianyuCsv1Live:
@@ -339,6 +340,21 @@ class XianyuCsv1Live:
         except (ValueError, TypeError):
             # 遇到 None 或脏数据，默认返回 0
             return 0.0
+
+    def extract_min_price(self, item_info):
+        """提取商品最低价（元），供议价策略计算底线价；无有效价格返回 None。"""
+        valid_prices = []
+        for sku in item_info.get('skuList', []) or []:
+            p = self.format_price(sku.get('price', 0))
+            if p > 0:
+                valid_prices.append(p)
+        if valid_prices:
+            return min(valid_prices)
+        try:
+            main_price = round(float(item_info.get('soldPrice', 0)), 2)
+            return main_price if main_price > 0 else None
+        except (ValueError, TypeError):
+            return None
     
     def build_item_description(self, item_info):
         """构建商品描述"""
@@ -534,33 +550,56 @@ class XianyuCsv1Live:
                 logger.info(f"从数据库获取商品信息: {item_id}")
                 
             item_description=f"当前商品的信息如下：{self.build_item_description(item_info)}"
-            
+
+            # 买家情感分析 + 商品最低价（供阶梯议价策略）
+            sent = bot.sentiment.analyze(send_message)
+            min_price = self.extract_min_price(item_info)
+
+            # 强烈负面情绪 → 自动转人工接管（需在策略里开启 auto_manual_on_negative）
+            if sent["label"] == "negative" and config_manager.get_behavior().get("auto_manual_on_negative"):
+                self.enter_manual_mode(chat_id)
+                self.context_manager.add_message_by_chat(chat_id, send_user_id, item_id, "user", send_message, sentiment=sent["label"])
+                logger.info(f"🔴 买家情绪负面，自动转人工接管会话 {chat_id}")
+                return
+
             # 获取完整的对话上下文
             context = self.context_manager.get_context_by_chat(chat_id)
             # 生成回复
             bot_reply = bot.generate_reply(
                 send_message,
                 item_description,
-                context=context
+                context=context,
+                price=min_price,
+                sentiment=sent["label"],
             )
-            
+
             # 检查是否需要回复
             if bot_reply == "-":
                 logger.info(f"[无需回复] 用户 {send_user_name} 的消息被识别为无需回复类型")
                 return
-            
-            # 添加用户消息到上下文
-            self.context_manager.add_message_by_chat(chat_id, send_user_id, item_id, "user", send_message)
-            
+
+            # 添加用户消息到上下文（带情感与意图）
+            self.context_manager.add_message_by_chat(chat_id, send_user_id, item_id, "user", send_message, sentiment=sent["label"], intent=bot.last_intent)
+
             # 检查是否为价格意图，如果是则增加议价次数
             if bot.last_intent == "price":
                 self.context_manager.increment_bargain_count_by_chat(chat_id)
                 bargain_count = self.context_manager.get_bargain_count_by_chat(chat_id)
                 logger.info(f"用户 {send_user_name} 对商品 {item_id} 的议价次数: {bargain_count}")
-            
+
             # 添加机器人回复到上下文
-            self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", bot_reply)
-            
+            self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", bot_reply, intent=bot.last_intent)
+
+            # Badcase 自动抓取（通道1·日志复盘）：负面情绪自动入库，供后续复盘归类
+            if sent["label"] == "negative":
+                self.context_manager.add_badcase(
+                    chat_id=chat_id, user_id=send_user_id, item_id=item_id,
+                    user_msg=send_message, bot_reply=bot_reply,
+                    intent=bot.last_intent, sentiment=sent["label"],
+                    category="买家质疑", source="日志复盘",
+                )
+                logger.info(f"已自动记录 badcase（买家质疑/日志复盘，会话 {chat_id}）")
+
             logger.info(f"机器人回复: {bot_reply}")
             
             # 模拟人工输入延迟

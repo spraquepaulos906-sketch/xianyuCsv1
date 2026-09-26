@@ -174,3 +174,57 @@ def _mask_key(key: str) -> str:
     if len(key) <= 8:
         return "****"
     return f"{key[:4]}****{key[-4:]}"
+
+
+# ---------- 议价策略 / 行为开关（存于 config.json 的 bargain_strategy / behavior 键） ----------
+
+DEFAULT_BARGAIN_STRATEGY = {
+    "enabled": True,
+    "max_discount_ratio": 0.10,  # 最大优惠比例（占商品价的 10%）
+    "tiers": [
+        {"round": 1, "ratio": 0.00},  # 首轮不让步，让买家先出价
+        {"round": 2, "ratio": 0.03},
+        {"round": 3, "ratio": 0.06},
+        {"round": 4, "ratio": 0.10},  # 触底
+    ],
+}
+
+DEFAULT_BEHAVIOR = {
+    "auto_manual_on_negative": False,  # 买家强烈负面情绪时是否自动转人工接管
+}
+
+
+def get_bargain_strategy() -> Dict:
+    """返回议价策略，缺失字段用默认值补齐。"""
+    cfg = load_config()
+    stored = cfg.get("bargain_strategy") or {}
+    merged = dict(DEFAULT_BARGAIN_STRATEGY)
+    merged.update(stored)
+    if not stored.get("tiers"):
+        merged["tiers"] = DEFAULT_BARGAIN_STRATEGY["tiers"]
+    return merged
+
+
+def save_bargain_strategy(strategy: Dict) -> Dict:
+    """保存议价策略并返回。"""
+    cfg = load_config()
+    cfg["bargain_strategy"] = strategy
+    save_config(cfg)
+    return strategy
+
+
+def get_behavior() -> Dict:
+    """返回行为开关，缺失字段用默认值补齐。"""
+    cfg = load_config()
+    stored = cfg.get("behavior") or {}
+    merged = dict(DEFAULT_BEHAVIOR)
+    merged.update(stored)
+    return merged
+
+
+def save_behavior(behavior: Dict) -> Dict:
+    """保存行为开关并返回。"""
+    cfg = load_config()
+    cfg["behavior"] = behavior
+    save_config(cfg)
+    return behavior

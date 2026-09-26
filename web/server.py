@@ -13,6 +13,7 @@ from loguru import logger
 
 import config_manager
 from context_manager import ChatContextManager
+from knowledge_base import KnowledgeBase
 from dotenv import set_key
 from utils.xianyu_utils import trans_cookies
 
@@ -184,6 +185,17 @@ def _ctx() -> ChatContextManager:
     return _readonly_ctx
 
 
+_readonly_kb = None
+
+
+def _kb() -> KnowledgeBase:
+    """返回知识库实例（懒加载单例）。"""
+    global _readonly_kb
+    if _readonly_kb is None:
+        _readonly_kb = KnowledgeBase()
+    return _readonly_kb
+
+
 @app.get("/api/conversations")
 def list_conversations(limit: int = 200):
     try:
@@ -202,6 +214,130 @@ def get_conversation(chat_id: str):
         logger.error(f"读取会话 {chat_id} 失败: {e}")
         raise HTTPException(status_code=500, detail=f"读取会话失败: {e}")
     return {"chat_id": chat_id, "messages": messages}
+
+
+# ---------- 知识库（RAG） ----------
+class KnowledgePayload(BaseModel):
+    question: str
+    answer: str
+    keywords: str = ""
+    category: str = ""
+
+
+class KnowledgeUpdate(BaseModel):
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    keywords: Optional[str] = None
+    category: Optional[str] = None
+    enabled: Optional[int] = None
+
+
+@app.get("/api/knowledge")
+def list_knowledge(category: Optional[str] = None):
+    try:
+        entries = _kb().list(category=category)
+    except Exception as e:
+        logger.error(f"读取知识库失败: {e}")
+        raise HTTPException(status_code=500, detail=f"读取知识库失败: {e}")
+    return {"entries": entries}
+
+
+@app.post("/api/knowledge")
+def add_knowledge(payload: KnowledgePayload):
+    if not payload.question.strip() or not payload.answer.strip():
+        raise HTTPException(status_code=400, detail="问题与答案不能为空")
+    entry_id = _kb().add(payload.question.strip(), payload.answer.strip(), payload.keywords, payload.category)
+    return {"ok": True, "id": entry_id}
+
+
+@app.put("/api/knowledge/{entry_id}")
+def update_knowledge(entry_id: int, payload: KnowledgeUpdate):
+    ok = _kb().update(
+        entry_id,
+        question=payload.question,
+        answer=payload.answer,
+        keywords=payload.keywords,
+        category=payload.category,
+        enabled=payload.enabled,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="知识条目不存在")
+    return {"ok": True}
+
+
+@app.delete("/api/knowledge/{entry_id}")
+def delete_knowledge(entry_id: int):
+    if not _kb().delete(entry_id):
+        raise HTTPException(status_code=404, detail="知识条目不存在")
+    return {"ok": True}
+
+
+# ---------- Badcase 复盘 ----------
+class BadcaseUpdate(BaseModel):
+    category: Optional[str] = None
+    status: Optional[str] = None
+    note: Optional[str] = None
+
+
+@app.get("/api/badcases")
+def list_badcases(category: Optional[str] = None, status: Optional[str] = None, source: Optional[str] = None):
+    try:
+        badcases = _ctx().list_badcases(category=category, status=status, source=source)
+    except Exception as e:
+        logger.error(f"读取 badcase 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"读取 badcase 失败: {e}")
+    return {"badcases": badcases}
+
+
+@app.put("/api/badcases/{badcase_id}")
+def update_badcase(badcase_id: int, payload: BadcaseUpdate):
+    ok = _ctx().update_badcase(badcase_id, category=payload.category, status=payload.status, note=payload.note)
+    if not ok:
+        raise HTTPException(status_code=404, detail="badcase 不存在")
+    return {"ok": True}
+
+
+@app.delete("/api/badcases/{badcase_id}")
+def delete_badcase(badcase_id: int):
+    if not _ctx().delete_badcase(badcase_id):
+        raise HTTPException(status_code=404, detail="badcase 不存在")
+    return {"ok": True}
+
+
+# ---------- 议价策略 / 行为开关 ----------
+class BargainStrategyPayload(BaseModel):
+    enabled: bool = True
+    max_discount_ratio: float = 0.10
+    tiers: list = []
+
+
+class BehaviorPayload(BaseModel):
+    auto_manual_on_negative: bool = False
+
+
+@app.get("/api/strategy")
+def get_strategy():
+    return {
+        "bargain_strategy": config_manager.get_bargain_strategy(),
+        "behavior": config_manager.get_behavior(),
+    }
+
+
+@app.put("/api/strategy/bargain")
+def save_bargain_strategy(payload: BargainStrategyPayload):
+    strategy = {
+        "enabled": payload.enabled,
+        "max_discount_ratio": payload.max_discount_ratio,
+        "tiers": payload.tiers,
+    }
+    saved = config_manager.save_bargain_strategy(strategy)
+    return {"ok": True, "bargain_strategy": saved}
+
+
+@app.put("/api/strategy/behavior")
+def save_behavior(payload: BehaviorPayload):
+    behavior = config_manager.save_behavior({"auto_manual_on_negative": payload.auto_manual_on_negative})
+    return {"ok": True, "behavior": behavior}
 
 
 # ---------- 网络访问（局域网开关） ----------

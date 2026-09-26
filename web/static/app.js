@@ -386,9 +386,284 @@ loadConfig().catch((err) => alert("加载失败：" + err.message));
 loadCookie().catch(() => {});
 loadConversations().catch(() => {});
 loadNetwork().catch(() => {});
+loadKnowledge().catch(() => {});
+loadBadcases().catch(() => {});
+loadStrategy().catch(() => {});
 setInterval(() => {
   loadConfig().catch(() => {});
   loadCookie().catch(() => {});
   loadConversations().catch(() => {});
   loadNetwork().catch(() => {});
 }, 5000);
+
+// ---------- 知识库（RAG） ----------
+let knowledge = [];
+let editingKbId = null;
+
+async function loadKnowledge() {
+  const data = await api("/api/knowledge");
+  knowledge = data.entries || [];
+  renderKnowledge();
+}
+
+function renderKnowledge() {
+  const list = $("#kb-list");
+  if (!knowledge.length) {
+    list.innerHTML = `<div class="empty">知识库为空，添加 FAQ 条目后机器人回答更有据可依。</div>`;
+    return;
+  }
+  list.innerHTML = knowledge
+    .map((e) => {
+      const disabled = !e.enabled;
+      const tags = [];
+      if (e.category) tags.push("分类：" + escapeHtml(e.category));
+      if (e.keywords) tags.push("关键词：" + escapeHtml(e.keywords));
+      return `
+      <div class="card kb-item ${disabled ? "disabled" : ""}">
+        <div class="qa">
+          <div class="q">${escapeHtml(e.question)}</div>
+          <div class="a">${escapeHtml(e.answer)}</div>
+          ${tags.length ? `<div class="tags">${tags.join(" · ")}</div>` : ""}
+        </div>
+        <div class="card-actions">
+          <button class="btn small" data-act="kb-edit" data-id="${e.id}">编辑</button>
+          <button class="btn small" data-act="kb-toggle" data-id="${e.id}" data-enabled="${e.enabled}">${e.enabled ? "停用" : "启用"}</button>
+          <button class="btn small danger" data-act="kb-del" data-id="${e.id}">删除</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+$("#kb-add-btn").addEventListener("click", async () => {
+  const question = $("#kb-question").value.trim();
+  const answer = $("#kb-answer").value.trim();
+  if (!question || !answer) {
+    alert("请填写问题与答案");
+    return;
+  }
+  const payload = {
+    question,
+    answer,
+    keywords: $("#kb-keywords").value.trim(),
+    category: $("#kb-category").value.trim(),
+  };
+  try {
+    if (editingKbId) {
+      await api(`/api/knowledge/${editingKbId}`, { method: "PUT", body: JSON.stringify(payload) });
+      editingKbId = null;
+      $("#kb-add-btn").textContent = "+ 添加条目";
+    } else {
+      await api("/api/knowledge", { method: "POST", body: JSON.stringify(payload) });
+    }
+    $("#kb-question").value = "";
+    $("#kb-answer").value = "";
+    $("#kb-keywords").value = "";
+    $("#kb-category").value = "";
+    await loadKnowledge();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#kb-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, id } = btn.dataset;
+  try {
+    if (act === "kb-edit") {
+      const entry = knowledge.find((x) => x.id === Number(id));
+      if (!entry) return;
+      editingKbId = entry.id;
+      $("#kb-question").value = entry.question;
+      $("#kb-answer").value = entry.answer;
+      $("#kb-keywords").value = entry.keywords || "";
+      $("#kb-category").value = entry.category || "";
+      $("#kb-add-btn").textContent = "保存修改";
+      $("#kb-question").scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (act === "kb-toggle") {
+      const enabled = btn.dataset.enabled === "1" ? 0 : 1;
+      await api(`/api/knowledge/${id}`, { method: "PUT", body: JSON.stringify({ enabled }) });
+      await loadKnowledge();
+    } else if (act === "kb-del") {
+      if (!confirm("确认删除该知识条目？")) return;
+      await api(`/api/knowledge/${id}`, { method: "DELETE" });
+      await loadKnowledge();
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#kb-refresh-btn").addEventListener("click", () =>
+  loadKnowledge().catch((err) => alert("刷新失败：" + err.message))
+);
+
+// ---------- Badcase 复盘 ----------
+let badcases = [];
+const BADCASE_CATEGORIES = ["意图误判", "回复机械", "买家质疑", "其他"];
+
+async function loadBadcases() {
+  const data = await api("/api/badcases");
+  badcases = data.badcases || [];
+  renderBadcases();
+}
+
+function renderBadcases() {
+  const list = $("#badcase-list");
+  if (!badcases.length) {
+    list.innerHTML = `<div class="empty">暂无 badcase。买家负面情绪会自动记录到这里。</div>`;
+    return;
+  }
+  list.innerHTML = badcases
+    .map((b) => {
+      const statusBadge =
+        b.status === "resolved"
+          ? '<span class="badge green">已处理</span>'
+          : '<span class="badge amber">待处理</span>';
+      const sentBadge =
+        b.sentiment === "negative"
+          ? '<span class="badge red">负面</span>'
+          : `<span class="badge gray">${escapeHtml(b.sentiment || "无情绪")}</span>`;
+      const catOptions = BADCASE_CATEGORIES.map(
+        (c) => `<option value="${c}" ${c === b.category ? "selected" : ""}>${c}</option>`
+      ).join("");
+      return `
+      <div class="card bc-item">
+        <div class="bc-head">
+          ${statusBadge}
+          <span class="badge gray">${escapeHtml(b.category || "其他")}</span>
+          ${sentBadge}
+          <span class="badge">${escapeHtml(b.intent || "无意图")}</span>
+          <span class="card-meta" style="margin-left:auto">${escapeHtml(b.source || "")} · ${escapeHtml(formatTime(b.created_at))}</span>
+        </div>
+        <div class="bc-body">
+          <div class="bc-line bc-user">👤 买家：${escapeHtml(b.user_msg)}</div>
+          <div class="bc-line bc-bot">🤖 回复：${escapeHtml(b.bot_reply)}</div>
+          ${b.note ? `<div class="bc-note">备注：${escapeHtml(b.note)}</div>` : ""}
+        </div>
+        <div class="bc-actions">
+          <select class="bc-cat" data-id="${b.id}">
+            <option value="">归类…</option>
+            ${catOptions}
+          </select>
+          <input class="bc-note-input" data-id="${b.id}" placeholder="补充备注" value="${escapeHtml(b.note || "")}">
+          <button class="btn small" data-act="bc-note" data-id="${b.id}">存备注</button>
+          ${b.status !== "resolved" ? `<button class="btn small" data-act="bc-resolve" data-id="${b.id}">标记已处理</button>` : ""}
+          <button class="btn small danger" data-act="bc-del" data-id="${b.id}">删除</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+$("#badcase-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, id } = btn.dataset;
+  try {
+    if (act === "bc-resolve") {
+      await api(`/api/badcases/${id}`, { method: "PUT", body: JSON.stringify({ status: "resolved" }) });
+      await loadBadcases();
+    } else if (act === "bc-note") {
+      const input = $(`.bc-note-input[data-id="${id}"]`);
+      await api(`/api/badcases/${id}`, { method: "PUT", body: JSON.stringify({ note: input.value }) });
+      await loadBadcases();
+    } else if (act === "bc-del") {
+      if (!confirm("确认删除该 badcase？")) return;
+      await api(`/api/badcases/${id}`, { method: "DELETE" });
+      await loadBadcases();
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#badcase-list").addEventListener("change", async (e) => {
+  if (!e.target.classList.contains("bc-cat")) return;
+  const category = e.target.value;
+  if (!category) return;
+  try {
+    await api(`/api/badcases/${e.target.dataset.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ category }),
+    });
+    await loadBadcases();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#badcase-refresh-btn").addEventListener("click", () =>
+  loadBadcases().catch((err) => alert("刷新失败：" + err.message))
+);
+
+// ---------- 议价策略 / 行为开关 ----------
+let bargainStrategy = null;
+let behavior = null;
+
+async function loadStrategy() {
+  const data = await api("/api/strategy");
+  bargainStrategy = data.bargain_strategy;
+  behavior = data.behavior;
+  renderStrategy();
+}
+
+function renderStrategy() {
+  $("#bargain-enabled").checked = !!bargainStrategy.enabled;
+  $("#bargain-max-ratio").value = bargainStrategy.max_discount_ratio;
+  $("#auto-manual-negative").checked = !!behavior.auto_manual_on_negative;
+  renderTiers();
+}
+
+function renderTiers() {
+  const tiers = bargainStrategy.tiers || [];
+  $("#tiers-list").innerHTML = tiers
+    .map(
+      (t, i) => `
+    <div class="tier-row" data-idx="${i}">
+      <span>第 ${escapeHtml(String(t.round))} 轮</span>
+      <input type="number" step="0.01" min="0" max="1" class="tier-ratio" value="${Number(t.ratio)}" data-idx="${i}">
+      <button class="btn small danger" data-act="tier-del" data-idx="${i}">删除</button>
+    </div>`
+    )
+    .join("");
+}
+
+$("#tier-add-btn").addEventListener("click", () => {
+  const tiers = bargainStrategy.tiers || [];
+  const nextRound = tiers.length ? Math.max(...tiers.map((t) => t.round)) + 1 : 1;
+  tiers.push({ round: nextRound, ratio: 0 });
+  bargainStrategy.tiers = tiers;
+  renderTiers();
+});
+
+$("#tiers-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act='tier-del']");
+  if (!btn) return;
+  bargainStrategy.tiers.splice(Number(btn.dataset.idx), 1);
+  renderTiers();
+});
+
+$("#strategy-save-btn").addEventListener("click", async () => {
+  bargainStrategy.enabled = $("#bargain-enabled").checked;
+  bargainStrategy.max_discount_ratio = Number($("#bargain-max-ratio").value);
+  document.querySelectorAll(".tier-ratio").forEach((inp) => {
+    bargainStrategy.tiers[Number(inp.dataset.idx)].ratio = Number(inp.value);
+  });
+  behavior.auto_manual_on_negative = $("#auto-manual-negative").checked;
+  try {
+    await api("/api/strategy/bargain", {
+      method: "PUT",
+      body: JSON.stringify(bargainStrategy),
+    });
+    await api("/api/strategy/behavior", {
+      method: "PUT",
+      body: JSON.stringify({ auto_manual_on_negative: behavior.auto_manual_on_negative }),
+    });
+    await loadStrategy();
+    alert("策略已保存");
+  } catch (err) {
+    alert(err.message);
+  }
+});

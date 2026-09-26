@@ -191,3 +191,44 @@ main { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
 }
 .msg.user .msg-bubble { background: #f3f4f6; color: var(--text); border-bottom-left-radius: 4px; }
 .msg.assistant .msg-bubble { background: #eff6ff; color: #1e40af; border-bottom-right-radius: 4px; }
+
+/* 知识库 / badcase / 策略 通用 */
+.box {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+}
+.kb-section, .badcase-section, .strategy-section { margin-top: 32px; }
+.kb-add { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.kb-add input, .kb-add textarea, .strategy-box input[type="number"] {
+  padding: 9px 12px; font-size: 14px; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; background: #fff;
+}
+.kb-add input:focus, .kb-add textarea:focus, .strategy-box input:focus { outline: none; border-color: var(--primary); }
+.kb-add textarea { resize: vertical; font-family: inherit; }
+.kb-row { display: flex; gap: 10px; }
+.kb-row input { flex: 1; }
+
+.kb-item .qa { flex: 1; min-width: 0; }
+.kb-item .q { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.kb-item .a { font-size: 13px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+.kb-item .tags { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.kb-item.disabled { opacity: 0.55; }
+
+.bc-item { align-items: flex-start; flex-direction: column; }
+.bc-item .bc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; width: 100%; }
+.bc-item .bc-body { width: 100%; font-size: 13px; }
+.bc-item .bc-line { margin-bottom: 4px; word-break: break-word; }
+.bc-item .bc-user { color: var(--text); }
+.bc-item .bc-bot { color: #1e40af; background: #eff6ff; border-radius: 8px; padding: 6px 10px; }
+.bc-item .bc-note { color: var(--muted); font-size: 12px; }
+.badge.red { color: var(--danger); background: #fef2f2; }
+.badge.green { color: var(--green); background: #f0fdf4; }
+.badge.gray { color: var(--muted); background: #f3f4f6; }
+.badge.amber { color: #b45309; background: #fffbeb; }
+.bc-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; width: 100%; }
+
+.tiers-head { margin-top: 16px; font-size: 13px; color: var(--muted); }
+.tier-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.tier-row input { width: 90px; padding: 7px 10px; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; }
+.field-inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.field-inline input[type="number"] { width: 90px; padding: 7px 10px; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; }

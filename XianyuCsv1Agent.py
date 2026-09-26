@@ -5,6 +5,8 @@ from openai import OpenAI
 from loguru import logger
 
 import config_manager
+from knowledge_base import KnowledgeBase
+from sentiment import SentimentAnalyzer
 
 
 class XianyuCsv1ReplyBot:
@@ -27,6 +29,10 @@ class XianyuCsv1ReplyBot:
             logger.info(f"当前使用模型: {current.get('provider')} / {self.current_model_name}")
         else:
             logger.warning("config.json 中没有任何模型，请通过 Web 前端添加模型")
+
+        # 知识库（RAG）与情感分析器（供 Agent 与 main.py 复用；需在 _init_agents 之前，因 Tech/Default Agent 依赖 kb）
+        self.kb = KnowledgeBase()
+        self.sentiment = SentimentAnalyzer()
 
         self._init_system_prompts()
         self._init_agents()
@@ -56,10 +62,11 @@ class XianyuCsv1ReplyBot:
     def _init_agents(self):
         """初始化各领域Agent"""
         self.agents = {
-            'classify':ClassifyAgent(self.client, self.classify_prompt, self._safe_filter, self.current_model_name),
+            'classify': ClassifyAgent(self.client, self.classify_prompt, self._safe_filter, self.current_model_name),
             'price': PriceAgent(self.client, self.price_prompt, self._safe_filter, self.current_model_name),
-            'tech': TechAgent(self.client, self.tech_prompt, self._safe_filter, self.current_model_name, base_url=self.current_base_url),
-            'default': DefaultAgent(self.client, self.default_prompt, self._safe_filter, self.current_model_name),
+            'tech': TechAgent(self.client, self.tech_prompt, self._safe_filter, self.current_model_name, base_url=self.current_base_url, kb=self.kb),
+            'compare': CompareAgent(self.client, self.compare_prompt, self._safe_filter, self.current_model_name),
+            'default': DefaultAgent(self.client, self.default_prompt, self._safe_filter, self.current_model_name, kb=self.kb),
         }
 
     def _init_system_prompts(self):
@@ -88,9 +95,11 @@ class XianyuCsv1ReplyBot:
             self.price_prompt = load_prompt_content("price_prompt")
             # 加载技术提示词
             self.tech_prompt = load_prompt_content("tech_prompt")
+            # 加载比价提示词
+            self.compare_prompt = load_prompt_content("compare_prompt")
             # 加载默认提示词
             self.default_prompt = load_prompt_content("default_prompt")
-                
+
             logger.info("成功加载所有提示词")
         except Exception as e:
             logger.error(f"加载提示词时出错: {e}")
@@ -107,18 +116,16 @@ class XianyuCsv1ReplyBot:
         user_assistant_msgs = [msg for msg in context if msg['role'] in ['user', 'assistant']]
         return "\n".join([f"{msg['role']}: {msg['content']}" for msg in user_assistant_msgs])
 
-    def generate_reply(self, user_msg: str, item_desc: str, context: List[Dict]) -> str:
+    def generate_reply(self, user_msg: str, item_desc: str, context: List[Dict], price: float = None, sentiment: str = None) -> str:
         """生成回复主流程"""
-        # 记录用户消息
-        # logger.debug(f'用户所发消息: {user_msg}')
-        
         formatted_context = self.format_history(context)
-        # logger.debug(f'对话历史: {formatted_context}')
-        
+
+        # 情感注入：让所有 Agent 感知买家情绪并调整语气
+        if sentiment:
+            item_desc = self._apply_sentiment(item_desc, sentiment)
+
         # 1. 路由决策
         detected_intent = self.router.detect(user_msg, item_desc, formatted_context)
-
-
 
         # 2. 获取对应Agent
 
@@ -137,7 +144,7 @@ class XianyuCsv1ReplyBot:
             agent = self.agents['default']
             logger.info(f'意图识别完成: default')
             self.last_intent = 'default'  # 保存当前意图
-        
+
         # 3. 获取议价次数
         bargain_count = self._extract_bargain_count(context)
         logger.info(f'议价次数: {bargain_count}')
@@ -147,8 +154,18 @@ class XianyuCsv1ReplyBot:
             user_msg=user_msg,
             item_desc=item_desc,
             context=formatted_context,
-            bargain_count=bargain_count
+            bargain_count=bargain_count,
+            price=price,
         )
+
+    def _apply_sentiment(self, item_desc: str, sentiment: str) -> str:
+        """把买家情绪注入商品信息，供所有 Agent 感知并调整语气。"""
+        notes = {
+            "negative": "▲买家当前情绪：负面（不满/着急），请优先安抚、放低姿态、主动解决，避免与买家争执",
+            "positive": "▲买家当前情绪：积极，可顺势引导下单、促成交易",
+        }
+        note = notes.get(sentiment)
+        return f"{item_desc}\n{note}" if note else item_desc
     
     def _extract_bargain_count(self, context: List[Dict]) -> int:
         """
@@ -191,15 +208,18 @@ class IntentRouter:
                     r'和.+比'             
                 ]
             },
+            'compare': {  # 比价类（买家拿别家价格施压）
+                'keywords': ['别家', '人家', '淘宝', '京东', '拼多多', '别处', '差价', '其他店', '别人卖'],
+            },
             'price': {
-                'keywords': ['便宜', '价', '砍价', '少点'],
+                'keywords': ['便宜', '价', '砍价', '少点', '贵'],
                 'patterns': [r'\d+元', r'能少\d+']
             }
         }
         self.classify_agent = classify_agent
 
     def detect(self, user_msg: str, item_desc, context) -> str:
-        """三级路由策略（技术优先）"""
+        """多级路由策略（技术 > 比价 > 价格 > 大模型兜底）"""
         text_clean = re.sub(r'[^\w\u4e00-\u9fa5]', '', user_msg)
         
         # 1. 技术类关键词优先检查
@@ -213,7 +233,11 @@ class IntentRouter:
                 # logger.debug(f"技术类正则匹配: {pattern}")
                 return 'tech'
 
-        # 3. 价格类检查
+        # 3. 比价类检查（先于价格，别家/淘宝等词优先归比价）
+        if any(kw in text_clean for kw in self.rules['compare']['keywords']):
+            return 'compare'
+
+        # 4. 价格类检查
         for intent in ['price']:
             if any(kw in text_clean for kw in self.rules[intent]['keywords']):
                 # logger.debug(f"价格类关键词匹配: {[kw for kw in self.rules[intent]['keywords'] if kw in text_clean]}")
@@ -224,8 +248,7 @@ class IntentRouter:
                     # logger.debug(f"价格类正则匹配: {pattern}")
                     return intent
         
-        # 4. 大模型兜底
-        # logger.debug("使用大模型进行意图分类")
+        # 5. 大模型兜底
         return self.classify_agent.generate(
             user_msg=user_msg,
             item_desc=item_desc,
@@ -236,18 +259,33 @@ class IntentRouter:
 class BaseAgent:
     """Agent基类"""
 
-    def __init__(self, client, system_prompt, safety_filter, model_name="qwen-max", base_url=""):
+    def __init__(self, client, system_prompt, safety_filter, model_name="qwen-max", base_url="", kb=None):
         self.client = client
         self.system_prompt = system_prompt
         self.safety_filter = safety_filter
         self.model_name = model_name
         self.base_url = base_url
+        self.kb = kb  # RAG 知识库（可选）
 
     def _is_qwen(self) -> bool:
         """是否为通义千问(DashScope)供应商（基于 base_url 判断）。"""
         return "dashscope" in self.base_url or "aliyuncs" in self.base_url
 
-    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int = 0) -> str:
+    def _inject_knowledge(self, user_msg: str, item_desc: str) -> str:
+        """RAG：检索知识库，命中则注入商品信息作为参考回答。"""
+        if not getattr(self, "kb", None):
+            return item_desc
+        try:
+            hits = self.kb.search(user_msg, top_k=3)
+        except Exception as e:
+            logger.debug(f"知识库检索失败: {e}")
+            return item_desc
+        if not hits:
+            return item_desc
+        kb_text = "\n".join(f"Q：{h['question']}\nA：{h['answer']}" for h in hits)
+        return f"{item_desc}\n▲知识库（参考回答，请结合语境使用）：\n{kb_text}"
+
+    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int = 0, price: float = None) -> str:
         """生成回复模板方法"""
         messages = self._build_messages(user_msg, item_desc, context)
         response = self._call_llm(messages)
@@ -275,11 +313,15 @@ class BaseAgent:
 class PriceAgent(BaseAgent):
     """议价处理Agent"""
 
-    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int=0) -> str:
-        """重写生成逻辑"""
+    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int=0, price: float=None) -> str:
+        """重写生成逻辑（含阶梯降价策略）"""
         dynamic_temp = self._calc_temperature(bargain_count)
         messages = self._build_messages(user_msg, item_desc, context)
-        messages[0]['content'] += f"\n▲当前议价轮次：{bargain_count}"
+        anchor = self._build_bargain_anchor(price, bargain_count)
+        if anchor:
+            messages[0]['content'] += anchor
+        else:
+            messages[0]['content'] += f"\n▲当前议价轮次：{bargain_count}"
 
         response = self.client.chat.completions.create(
             model=self.model_name,
@@ -294,13 +336,35 @@ class PriceAgent(BaseAgent):
         """动态温度策略"""
         return min(0.3 + bargain_count * 0.15, 0.9)
 
+    def _build_bargain_anchor(self, price: float, bargain_count: int) -> str:
+        """根据议价策略计算本轮可让利额度与底线价，注入给模型守住价格。"""
+        strategy = config_manager.get_bargain_strategy()
+        if not strategy.get("enabled") or not price:
+            return ""
+        tiers = strategy.get("tiers", [])
+        max_ratio = float(strategy.get("max_discount_ratio", 0.10))
+
+        # 取 <= 当前轮次的最大让利比例
+        ratio = 0.0
+        for tier in sorted(tiers, key=lambda t: t.get("round", 0)):
+            if tier.get("round", 0) <= bargain_count:
+                ratio = float(tier.get("ratio", 0.0))
+        ratio = min(ratio, max_ratio)
+
+        floor_price = round(price * (1 - max_ratio), 2)
+        allowance = round(price * ratio, 2)
+        return (
+            f"\n▲议价阶梯策略：商品原价 ¥{price:.2f}，底线价 ¥{floor_price:.2f}（不可突破），"
+            f"当前第 {bargain_count} 轮，本轮最多可让利 ¥{allowance:.2f}。请在额度内让步，避免无休止降价。"
+        )
+
 
 class TechAgent(BaseAgent):
     """技术咨询Agent"""
-    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int=0) -> str:
-        """重写生成逻辑"""
+    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int=0, price: float=None) -> str:
+        """重写生成逻辑（RAG 知识库注入）"""
+        item_desc = self._inject_knowledge(user_msg, item_desc)
         messages = self._build_messages(user_msg, item_desc, context)
-        # messages[0]['content'] += "\n▲知识库：\n" + self._fetch_tech_specs()
 
         kwargs = {
             "model": self.model_name,
@@ -317,9 +381,15 @@ class TechAgent(BaseAgent):
         return self.safety_filter(response.choices[0].message.content)
 
 
-    # def _fetch_tech_specs(self) -> str:
-    #     """模拟获取技术参数（可连接数据库）"""
-    #     return "功率：200W@8Ω\n接口：XLR+RCA\n频响：20Hz-20kHz"
+class CompareAgent(BaseAgent):
+    """比价防守Agent：买家拿别家价格施压时，从品质/成色/保修/货源差异守价。"""
+
+    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int=0, price: float=None) -> str:
+        messages = self._build_messages(user_msg, item_desc, context)
+        if price:
+            messages[0]['content'] += f"\n▲本店商品原价 ¥{price:.2f}，请从品质/成色/保修/货源差异说明定价合理性，不盲目降价。"
+        response = self._call_llm(messages, temperature=0.5)
+        return self.safety_filter(response)
 
 
 class ClassifyAgent(BaseAgent):
@@ -332,6 +402,11 @@ class ClassifyAgent(BaseAgent):
 
 class DefaultAgent(BaseAgent):
     """默认处理Agent"""
+
+    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int = 0, price: float = None) -> str:
+        """默认客服（RAG 知识库注入）"""
+        item_desc = self._inject_knowledge(user_msg, item_desc)
+        return super().generate(user_msg, item_desc, context, bargain_count, price)
 
     def _call_llm(self, messages: List[Dict], *args) -> str:
         """限制默认回复长度"""

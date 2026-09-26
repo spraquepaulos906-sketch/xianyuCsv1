@@ -54,6 +54,14 @@ class ChatContextManager:
         if 'chat_id' not in columns:
             cursor.execute('ALTER TABLE messages ADD COLUMN chat_id TEXT')
             logger.info("已为messages表添加chat_id字段")
+
+        # 检查是否需要添加 sentiment/intent 字段（情感分析与意图复盘）
+        if 'sentiment' not in columns:
+            cursor.execute('ALTER TABLE messages ADD COLUMN sentiment TEXT')
+            logger.info("已为messages表添加sentiment字段")
+        if 'intent' not in columns:
+            cursor.execute('ALTER TABLE messages ADD COLUMN intent TEXT')
+            logger.info("已为messages表添加intent字段")
         
         # 创建索引以加速查询
         cursor.execute('''
@@ -85,6 +93,25 @@ class ChatContextManager:
             price REAL,
             description TEXT,
             last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
+        # 创建 badcase 复盘表（双通道：日志复盘自动 + 群反馈手动）
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS badcases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id TEXT,
+            user_id TEXT,
+            item_id TEXT,
+            user_msg TEXT,
+            bot_reply TEXT,
+            intent TEXT,
+            sentiment TEXT,
+            category TEXT,
+            source TEXT,
+            status TEXT DEFAULT 'open',
+            note TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
         ''')
         
@@ -163,25 +190,27 @@ class ChatContextManager:
         finally:
             conn.close()
 
-    def add_message_by_chat(self, chat_id, user_id, item_id, role, content):
+    def add_message_by_chat(self, chat_id, user_id, item_id, role, content, sentiment=None, intent=None):
         """
         基于会话ID添加新消息到对话历史
-        
+
         Args:
             chat_id: 会话ID
             user_id: 用户ID (用户消息存真实user_id，助手消息存卖家ID)
             item_id: 商品ID
             role: 消息角色 (user/assistant)
             content: 消息内容
+            sentiment: 情感标签 (positive/neutral/negative)
+            intent: 意图标签 (price/tech/compare/default/no_reply)
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         try:
             # 插入新消息，使用chat_id作为额外标识
             cursor.execute(
-                "INSERT INTO messages (user_id, item_id, role, content, timestamp, chat_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, item_id, role, content, datetime.now().isoformat(), chat_id)
+                "INSERT INTO messages (user_id, item_id, role, content, timestamp, chat_id, sentiment, intent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, item_id, role, content, datetime.now().isoformat(), chat_id, sentiment, intent)
             )
             
             # 检查是否需要清理旧消息（基于chat_id）
@@ -387,7 +416,7 @@ class ChatContextManager:
         try:
             cursor.execute(
                 """
-                SELECT id, user_id, item_id, role, content, timestamp
+                SELECT id, user_id, item_id, role, content, timestamp, sentiment, intent
                 FROM messages
                 WHERE chat_id = ?
                 ORDER BY timestamp ASC, id ASC
@@ -404,11 +433,122 @@ class ChatContextManager:
                     "role": r[3],
                     "content": r[4],
                     "timestamp": r[5],
+                    "sentiment": r[6],
+                    "intent": r[7],
                 }
                 for r in cursor.fetchall()
             ]
         except Exception as e:
             logger.error(f"获取会话 {chat_id} 消息时出错: {e}")
             return []
+        finally:
+            conn.close()
+
+    # ---------- Badcase 复盘 ----------
+    def add_badcase(self, chat_id=None, user_id=None, item_id=None, user_msg="",
+                    bot_reply="", intent=None, sentiment=None, category="其他",
+                    source="日志复盘", note=""):
+        """新增一条 badcase。
+
+        Args:
+            category: 归类 - 意图误判/回复机械/买家质疑/其他
+            source: 来源 - 日志复盘(自动)/群反馈(手动)
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO badcases
+                    (chat_id, user_id, item_id, user_msg, bot_reply, intent, sentiment,
+                     category, source, status, note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+                """,
+                (chat_id, user_id, item_id, user_msg, bot_reply, intent, sentiment,
+                 category, source, note, datetime.now().isoformat())
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            logger.error(f"新增 badcase 时出错: {e}")
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+
+    def list_badcases(self, category=None, status=None, source=None, limit=500):
+        """按条件列出 badcase（空条件表示不过滤）。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            sql = "SELECT id, chat_id, user_id, item_id, user_msg, bot_reply, intent, sentiment, category, source, status, note, created_at FROM badcases"
+            clauses = []
+            params = []
+            if category:
+                clauses.append("category = ?")
+                params.append(category)
+            if status:
+                clauses.append("status = ?")
+                params.append(status)
+            if source:
+                clauses.append("source = ?")
+                params.append(source)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY id DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(sql, params)
+            return [
+                {
+                    "id": r[0], "chat_id": r[1], "user_id": r[2], "item_id": r[3],
+                    "user_msg": r[4], "bot_reply": r[5], "intent": r[6], "sentiment": r[7],
+                    "category": r[8], "source": r[9], "status": r[10], "note": r[11],
+                    "created_at": r[12],
+                }
+                for r in cursor.fetchall()
+            ]
+        except Exception as e:
+            logger.error(f"列出 badcase 时出错: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def update_badcase(self, badcase_id, category=None, status=None, note=None):
+        """更新 badcase 的归类/状态/备注。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            fields = []
+            params = []
+            for key, val in (("category", category), ("status", status), ("note", note)):
+                if val is not None:
+                    fields.append(f"{key} = ?")
+                    params.append(val)
+            if not fields:
+                return False
+            params.append(badcase_id)
+            cursor.execute(f"UPDATE badcases SET {', '.join(fields)} WHERE id = ?", params)
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"更新 badcase 时出错: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def delete_badcase(self, badcase_id):
+        """删除一条 badcase。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM badcases WHERE id = ?", (badcase_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"删除 badcase 时出错: {e}")
+            conn.rollback()
+            return False
         finally:
             conn.close()

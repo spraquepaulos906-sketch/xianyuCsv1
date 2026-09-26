@@ -69,6 +69,60 @@
       <div id="conversation-detail" class="conversation-detail hidden"></div>
       <p class="hint">提示：点击会话查看完整消息记录，数据持久化在本地数据库。</p>
     </section>
+
+    <section class="kb-section">
+      <div class="section-head">
+        <h2>知识库（RAG）</h2>
+        <button class="btn" id="kb-refresh-btn">🔄 刷新</button>
+      </div>
+      <div class="kb-add box">
+        <input id="kb-question" placeholder="问题，如：支持七天无理由吗">
+        <textarea id="kb-answer" rows="2" placeholder="答案，如：支持七天无理由退换，需商品保持原样"></textarea>
+        <div class="kb-row">
+          <input id="kb-keywords" placeholder="关键词，逗号分隔（可选）">
+          <input id="kb-category" placeholder="分类，如：售后 / 保修（可选）">
+        </div>
+        <button class="btn primary" id="kb-add-btn">+ 添加条目</button>
+      </div>
+      <div id="kb-list" class="models-list"></div>
+      <p class="hint">提示：知识库命中后会自动注入机器人回复，用于回答产品参数、保修、退换货等 FAQ。</p>
+    </section>
+
+    <section class="badcase-section">
+      <div class="section-head">
+        <h2>Badcase 复盘</h2>
+        <button class="btn" id="badcase-refresh-btn">🔄 刷新</button>
+      </div>
+      <div id="badcase-list" class="models-list"></div>
+      <p class="hint">提示：买家负面情绪会自动记录到这里，可归类、补充备注、标记已处理。</p>
+    </section>
+
+    <section class="strategy-section">
+      <div class="section-head">
+        <h2>议价策略与行为开关</h2>
+        <button class="btn" id="strategy-save-btn">💾 保存策略</button>
+      </div>
+      <div class="strategy-box box">
+        <label class="switch-label">
+          <input type="checkbox" id="bargain-enabled">
+          <span>启用阶梯议价策略（按轮次限价让利）</span>
+        </label>
+        <div class="kb-row" style="margin-top:12px">
+          <label class="field-inline">最大优惠比例
+            <input id="bargain-max-ratio" type="number" step="0.01" min="0" max="1" placeholder="0.10">
+          </label>
+          <label class="field-inline">负面情绪自动转人工
+            <input type="checkbox" id="auto-manual-negative">
+          </label>
+        </div>
+        <div class="tiers-head">
+          <span>议价阶梯（轮次 → 可让利比例）</span>
+        </div>
+        <div id="tiers-list"></div>
+        <button class="btn small" id="tier-add-btn">+ 添加阶梯</button>
+      </div>
+      <p class="hint">提示：最大优惠比例为占商品价的百分比（0.10 = 10%）。负面情绪自动转人工开启后，买家强负面消息会暂停机器人自动回复。</p>
+    </section>
   </main>
 
   <!-- 添加/编辑模型弹窗 -->

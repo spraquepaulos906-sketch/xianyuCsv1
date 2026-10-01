@@ -2,7 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![LLM Powered](https://img.shields.io/badge/LLM-powered-FF6F61)](https://platform.openai.com/)
 
-专为闲鱼平台打造的AI值守解决方案，实现闲鱼平台7×24小时自动化值守，支持多专家协同决策、智能议价和上下文感知对话。
+闲鱼平台 7×24 小时 AI 客服值守系统：多模型自由切换、意图识别与专家路由（议价/技术/默认）、阶梯议价、本地情感分析（负面情绪自动转人工）、RAG 知识库与 Badcase 复盘，开箱即用的 Web 控制台。
 
 ## 🌟 核心特性
 
@@ -99,6 +99,10 @@ python main.py
 ## 🛡 注意事项
 
 ⚠️ 本项目仅供学习与交流，如有侵权请联系作者删除。
+
+## 🙏 致谢（Attribution）
+
+本项目基于 [shaxiu/XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent) 二次开发，感谢原作者提供闲鱼网页端自动化基础框架。本仓库在其之上新增多模型管理、情感分析、RAG 知识库、Badcase 复盘与阶梯议价等增强能力。
 
 ## 👤 作者
 
